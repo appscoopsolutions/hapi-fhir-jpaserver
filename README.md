@@ -1,3 +1,5 @@
+Also see [README-Cambian.md./](README-Cambian.md) for local info
+
 # HAPI-FHIR Starter Project
 
 This project is a complete starter project you can use to deploy a FHIR server using HAPI FHIR JPA.
