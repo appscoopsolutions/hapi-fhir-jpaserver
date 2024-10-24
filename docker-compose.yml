@@ -6,6 +6,14 @@ services:
     restart: on-failure
     ports:
       - "8080:8080"
+    environment:
+      JAVA_OPTS: "-Xms1g -Xmx2g"
+    deploy:
+      resources:
+        limits:
+          memory: 4g
+        reservations:
+          memory: 2g
   hapi-fhir-postgres:
     image: postgres:13-alpine
     container_name: hapi-fhir-postgres
