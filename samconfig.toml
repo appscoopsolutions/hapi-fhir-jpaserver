@@ -1,0 +1,26 @@
+version = 0.1
+
+[default.deploy.parameters]
+stack_name = "new-dev-hapi-fhir"
+resolve_s3 = true
+s3_prefix = "new-dev-hapi-fhir"
+region = "ca-central-1"
+capabilities = "CAPABILITY_IAM CAPABILITY_NAMED_IAM"
+disable_rollback = false
+parameter_overrides = [
+  "TestPrefix=''",
+  "Env=new-dev",
+  "EcrImageUri=460016595608.dkr.ecr.ca-central-1.amazonaws.com/organization-images:hapi_fhir_jspaserver_cambian-v1",
+  "VPCID=/satyam-devCS/Organization/CF/VPCID",
+  "VpcCIDR=/satyam-devCS/Organization/CF/VpcCIDR",
+  "PrivateSubnets=/satyam-devCS/Organization/CF/PrivateSubnets",
+  "PrivateSubnet1=/satyam-devCS/Organization/CF/PrivateSubnet1",
+  "VpcEndpointSGID=/satyam-devCS/Organization/CF/APIGatewayVPCEndpointSGID",
+  "RDSClientSGID=/satyam-devCS/Organization/CF/RDSClientSGID",
+  "OrganizationLambdaSGID=/satyam-devCS/Organization/CF/LambdaSGID",
+  "RDSConnectionSecretArn=/satyam-devCS/Organization/RDSConnectionSecretArn",
+  "RDSCredentialsSecretArn=/satyam-devCS/Organization/RDSCredentialsSecretArn",
+  "HapiFhirDBName=/satyam-devCS/Organization/HapiFhir/DBName",
+  "HapiFhirCredentialsSecretArn=/satyam-devCS/Organization/HapiFhirDbCredentialSecretArn"
+]
+image_repository = "460016595608.dkr.ecr.ca-central-1.amazonaws.com/organization-images"

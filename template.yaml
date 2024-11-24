@@ -1,0 +1,368 @@
+AWSTemplateFormatVersion: "2010-09-09"
+Transform: AWS::Serverless-2016-10-31
+Description: HAPI FHIR JPA Server ECS Deployment with Private VPC Endpoints
+
+Parameters:
+  TestPrefix:
+    Type: String
+    Default: ""
+  Env:
+    Type: String
+    Default: dev
+    Description: Deployment environment
+
+  EcrImageUri:
+    Type: String
+    Description: Full URI of the HAPI FHIR Docker image in ECR
+  VPCID:
+    Type: AWS::SSM::Parameter::Value<String>
+    Default: "/cambian-devCS/Organization/CF/VPCID"
+  PrivateSubnets:
+    Type: AWS::SSM::Parameter::Value<List<String>>
+    Default: "/cambian-devCS/Organization/CF/PrivateSubnets"
+  VpcCIDR:
+    Type: AWS::SSM::Parameter::Value<String>
+    Default: "/cambian-devCS/Organization/CF/VpcCIDR"
+  RDSClientSGID:
+    Type: AWS::SSM::Parameter::Value<String>
+    Default: "/cambian-devCS/Organization/CF/RDSClientSGID"
+    Description: RDS Client Security Group ID SSM parameter key
+  OrganizationLambdaSGID:
+    Type: AWS::SSM::Parameter::Value<String>
+    Default: "/cambian-devCS/Organization/CF/RDSClientSGID"
+    Description: RDS Client Security Group ID SSM parameter key
+
+  RDSConnectionSecretArn:
+    Type: AWS::SSM::Parameter::Value<String>
+    Default: "/cambian-devCS/Organization/RDSConnectionSecretArn"
+    Description: SSM key for the RDS connection secret ARN
+  RDSCredentialsSecretArn:
+    Type: AWS::SSM::Parameter::Value<String>
+    Default: "/cambian-devCS/Organization/RDSCredentialsSecretArn"
+    Description: SSM key for the RDS credentials secret ARN
+  HapiFhirDBName:
+    Type: AWS::SSM::Parameter::Value<String>
+    Default: "/cambian-devCS/Organization/HapiFhir/DBName"
+    Description: SSM key for the HAPI FHIR DB name
+  HapiFhirCredentialsSecretArn:
+    Type: AWS::SSM::Parameter::Value<String>
+    Default: "/cambian-devCS/Organization/HapiFhirDbCredentialSecretArn"
+    Description: SSM key for the HAPI FHIR DB credentials secret ARN
+
+Resources:
+  # VPC Endpoints for ECR, S3, and Secrets Manager
+  ECRDockerVpcEndpoint:
+    Type: AWS::EC2::VPCEndpoint
+    Properties:
+      VpcId: !Ref VPCID
+      ServiceName: !Sub com.amazonaws.${AWS::Region}.ecr.dkr
+      VpcEndpointType: Interface
+      PrivateDnsEnabled: true
+      SubnetIds: !Ref PrivateSubnets
+      SecurityGroupIds:
+        - !Ref HapiFhirVPCEndpointSecurityGroup
+
+  ECRAPIVpcEndpoint:
+    Type: AWS::EC2::VPCEndpoint
+    Properties:
+      VpcId: !Ref VPCID
+      ServiceName: !Sub com.amazonaws.${AWS::Region}.ecr.api
+      VpcEndpointType: Interface
+      PrivateDnsEnabled: true
+      SubnetIds: !Ref PrivateSubnets
+      SecurityGroupIds:
+        - !Ref HapiFhirVPCEndpointSecurityGroup
+
+  CloudWatchLogsVpcEndpoint:
+    Type: AWS::EC2::VPCEndpoint
+    Properties:
+      VpcId: !Ref VPCID
+      ServiceName: !Sub com.amazonaws.${AWS::Region}.logs
+      VpcEndpointType: Interface
+      PrivateDnsEnabled: true
+      SubnetIds: !Ref PrivateSubnets
+      SecurityGroupIds:
+        - !Ref HapiFhirVPCEndpointSecurityGroup
+
+  # Security Groups
+  HapiFhirVPCEndpointSecurityGroup:
+    Type: AWS::EC2::SecurityGroup
+    Properties:
+      GroupDescription: Security group for VPC Endpoints
+      VpcId: !Ref VPCID
+      SecurityGroupIngress:
+        - IpProtocol: tcp
+          FromPort: 443
+          ToPort: 443
+          CidrIp: !Ref VpcCIDR
+
+  HapiFhirECSTaskSecurityGroup:
+    Type: AWS::EC2::SecurityGroup
+    Properties:
+      GroupDescription: Security group for HAPI FHIR ECS Tasks
+      VpcId: !Ref VPCID
+      SecurityGroupIngress:
+        # Allow access from VPC CIDR
+        - IpProtocol: tcp
+          FromPort: 8080
+          ToPort: 8080
+          CidrIp: !Ref VpcCIDR
+        # Allow access from Lambda Security Group
+        - IpProtocol: tcp
+          FromPort: 8080
+          ToPort: 8080
+          SourceSecurityGroupId: !Ref OrganizationLambdaSGID
+      SecurityGroupEgress:
+        # HTTPS (443) outbound - required for ECR, downloads
+        - IpProtocol: tcp
+          FromPort: 443
+          ToPort: 443
+          CidrIp: 0.0.0.0/0
+
+        # DNS (53) TCP outbound
+        - IpProtocol: tcp
+          FromPort: 53
+          ToPort: 53
+          CidrIp: !Ref VpcCIDR
+
+        # DNS (53) UDP outbound
+        - IpProtocol: udp
+          FromPort: 53
+          ToPort: 53
+          CidrIp: !Ref VpcCIDR
+
+        # RDS PostgreSQL access
+        - IpProtocol: tcp
+          FromPort: !Sub "{{resolve:secretsmanager:${RDSConnectionSecretArn}:SecretString:port}}"
+          ToPort: !Sub "{{resolve:secretsmanager:${RDSConnectionSecretArn}:SecretString:port}}"
+          DestinationSecurityGroupId: !Ref RDSClientSGID
+
+  # ECS Resources
+  HapiFhirCluster:
+    Type: AWS::ECS::Cluster
+    Properties:
+      ClusterName: !Sub "${TestPrefix}${Env}hapi-fhir-cluster"
+      ClusterSettings:
+        - Name: containerInsights
+          Value: enabled
+
+  HapiFhirTaskDefinition:
+    Type: AWS::ECS::TaskDefinition
+    Properties:
+      Family: !Sub "${TestPrefix}${Env}hapi-fhir-task"
+      NetworkMode: awsvpc
+      RequiresCompatibilities:
+        - FARGATE
+      Cpu: 2048
+      Memory: 4096
+      ExecutionRoleArn: !GetAtt ECSTaskExecutionRole.Arn
+      TaskRoleArn: !GetAtt ECSTaskRole.Arn
+      RuntimePlatform:
+        OperatingSystemFamily: LINUX
+        CpuArchitecture: ARM64
+      ContainerDefinitions:
+        - Name: !Sub "${TestPrefix}${Env}hapi-fhir-container"
+          Image: !Ref EcrImageUri
+          LogConfiguration:
+            LogDriver: awslogs
+            Options:
+              awslogs-group: !Ref HapiFhirLogGroup
+              awslogs-region: !Ref AWS::Region
+              awslogs-stream-prefix: ecs
+          PortMappings:
+            - ContainerPort: 8080
+              HostPort: 8080
+              Protocol: tcp
+          Environment:
+            - Name: SPRING_DATASOURCE_URL
+              Value: !Join
+                - ""
+                - - "jdbc:postgresql://"
+                  - !Sub "{{resolve:secretsmanager:${RDSConnectionSecretArn}:SecretString:host}}"
+                  - ":"
+                  - !Sub "{{resolve:secretsmanager:${RDSConnectionSecretArn}:SecretString:port}}"
+                  - "/"
+                  - !Ref HapiFhirDBName
+            - Name: SPRING_DATASOURCE_USERNAME
+              Value: !Sub "{{resolve:secretsmanager:${RDSCredentialsSecretArn}:SecretString:username}}"
+            - Name: SPRING_DATASOURCE_PASSWORD
+              Value: !Sub "{{resolve:secretsmanager:${RDSCredentialsSecretArn}:SecretString:password}}"
+            - Name: POSTGRES_DB
+              Value: !Ref HapiFhirDBName
+            - Name: POSTGRES_USER
+              Value: !Sub "{{resolve:secretsmanager:${HapiFhirCredentialsSecretArn}:SecretString:username}}"
+            - Name: POSTGRES_PASSWORD
+              Value: !Sub "{{resolve:secretsmanager:${HapiFhirCredentialsSecretArn}:SecretString:password}}"
+
+  HapiFhirALB:
+    Type: AWS::ElasticLoadBalancingV2::LoadBalancer
+    Properties:
+      Name: !Sub "${TestPrefix}${Env}-hapi-fhir-alb"
+      Scheme: internal
+      LoadBalancerAttributes:
+        - Key: idle_timeout.timeout_seconds
+          Value: "60"
+      SecurityGroups:
+        - !Ref ALBSecurityGroup
+      Subnets: !Ref PrivateSubnets
+
+  ALBListener:
+    Type: AWS::ElasticLoadBalancingV2::Listener
+    Properties:
+      LoadBalancerArn: !Ref HapiFhirALB
+      Port: 80
+      Protocol: HTTP
+      DefaultActions:
+        - Type: forward
+          TargetGroupArn: !Ref ALBTargetGroup
+
+  # Target Group
+  ALBTargetGroup:
+    Type: AWS::ElasticLoadBalancingV2::TargetGroup
+    Properties:
+      Name: !Sub "${TestPrefix}${Env}-hapi-fhir-tg"
+      Port: 8080
+      Protocol: HTTP
+      TargetType: ip
+      VpcId: !Ref VPCID
+      HealthCheckPath: /fhir/metadata
+      HealthCheckIntervalSeconds: 30
+      HealthCheckTimeoutSeconds: 5
+      HealthyThresholdCount: 2
+      UnhealthyThresholdCount: 2
+
+  # Security Group for ALB
+  ALBSecurityGroup:
+    Type: AWS::EC2::SecurityGroup
+    Properties:
+      GroupDescription: Security group for HAPI FHIR ALB
+      VpcId: !Ref VPCID
+      SecurityGroupIngress:
+        - IpProtocol: tcp
+          FromPort: 80
+          ToPort: 80
+          SourceSecurityGroupId: !Ref OrganizationLambdaSGID
+      SecurityGroupEgress:
+        - IpProtocol: tcp
+          FromPort: 8080
+          ToPort: 8080
+          CidrIp: !Ref VpcCIDR
+
+  HapiFhirService:
+    Type: AWS::ECS::Service
+    DependsOn: ALBListener
+    Properties:
+      Cluster: !Ref HapiFhirCluster
+      TaskDefinition: !Ref HapiFhirTaskDefinition
+      LaunchType: FARGATE
+      DesiredCount: 2
+      DeploymentConfiguration:
+        MinimumHealthyPercent: 50
+        MaximumPercent: 200
+      NetworkConfiguration:
+        AwsvpcConfiguration:
+          SecurityGroups:
+            - !Ref HapiFhirECSTaskSecurityGroup
+            - !Ref RDSClientSGID
+          Subnets: !Ref PrivateSubnets
+      LoadBalancers:
+        - ContainerName: !Sub "${TestPrefix}${Env}hapi-fhir-container"
+          ContainerPort: 8080
+          TargetGroupArn: !Ref ALBTargetGroup
+
+  # IAM Roles and Log Group
+  HapiFhirLogGroup:
+    Type: AWS::Logs::LogGroup
+    Properties:
+      LogGroupName: !Sub "/ecs/${TestPrefix}${Env}/hapi-fhir"
+      RetentionInDays: 30
+
+  ECSTaskExecutionRole:
+    Type: AWS::IAM::Role
+    Properties:
+      AssumeRolePolicyDocument:
+        Version: "2012-10-17"
+        Statement:
+          - Effect: Allow
+            Principal:
+              Service: ecs-tasks.amazonaws.com
+            Action: sts:AssumeRole
+      ManagedPolicyArns:
+        - arn:aws:iam::aws:policy/service-role/AmazonECSTaskExecutionRolePolicy
+        - arn:aws:iam::aws:policy/AmazonEC2ContainerRegistryReadOnly
+      Policies:
+        - PolicyName: CloudWatchLogsPolicy
+          PolicyDocument:
+            Version: "2012-10-17"
+            Statement:
+              - Effect: Allow
+                Action:
+                  - logs:CreateLogStream
+                  - logs:PutLogEvents
+                Resource: !Sub "${HapiFhirLogGroup.Arn}:*"
+        - PolicyName: AllowSecretsAndSSM
+          PolicyDocument:
+            Version: "2012-10-17"
+            Statement:
+              - Effect: Allow
+                Action:
+                  - secretsmanager:GetSecretValue
+                  - ssm:GetParameter
+                Resource:
+                  - !Sub "arn:aws:secretsmanager:${AWS::Region}:${AWS::AccountId}:secret:*"
+                  - !Sub "arn:aws:ssm:${AWS::Region}:${AWS::AccountId}:parameter/*"
+
+  ECSTaskRole:
+    Type: AWS::IAM::Role
+    Properties:
+      AssumeRolePolicyDocument:
+        Version: "2012-10-17"
+        Statement:
+          - Effect: Allow
+            Principal:
+              Service: ecs-tasks.amazonaws.com
+            Action: sts:AssumeRole
+      Policies:
+        - PolicyName: CloudWatchLogsAccess
+          PolicyDocument:
+            Version: "2012-10-17"
+            Statement:
+              - Effect: Allow
+                Action:
+                  - logs:CreateLogStream
+                  - logs:PutLogEvents
+                  - logs:DescribeLogStreams
+                Resource: !GetAtt HapiFhirLogGroup.Arn
+
+  CDRURLParameter:
+    Type: AWS::SSM::Parameter
+    Properties:
+      Name: !Sub "/${Env}CS/Organization/CF/CDRURL"
+      Type: String
+      Value: !Sub "http://${HapiFhirALB.DNSName}/fhir"
+      Description: "Internal URL for HAPI FHIR CDR"
+
+  HAPIFHIRClientSGIDParameter:
+    Type: AWS::SSM::Parameter
+    Properties:
+      Name: !Sub "/${Env}CS/Organization/CF/HAPIFHIRClientSGID"
+      Type: String
+      Value: !Ref ALBSecurityGroup
+      Description: "Security Group ID for HAPI FHIR client access"
+
+Outputs:
+  ECSClusterName:
+    Description: ECS Cluster Name
+    Value: !Ref HapiFhirCluster
+
+  CDRURLParameter:
+    Description: SSM Parameter storing HAPI FHIR CDR URL
+    Value: !Ref CDRURLParameter
+
+  HAPIFHIRClientSGIDParameter:
+    Description: SSM Parameter storing HAPI FHIR Client Security Group ID
+    Value: !Ref HAPIFHIRClientSGIDParameter
+
+  ServiceURL:
+    Description: URL of the service
+    Value: !Sub http://${HapiFhirALB.DNSName}
