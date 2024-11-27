@@ -10,6 +10,9 @@ Parameters:
     Type: String
     Default: dev
     Description: Deployment environment
+  VpcCIDR:
+    Type: String
+    Default: 30.0.0.0/18
 
   EcrImageUri:
     Type: String
@@ -20,9 +23,6 @@ Parameters:
   PrivateSubnets:
     Type: AWS::SSM::Parameter::Value<List<String>>
     Default: "/cambian-devCS/Organization/CF/PrivateSubnets"
-  VpcCIDR:
-    Type: AWS::SSM::Parameter::Value<String>
-    Default: "/cambian-devCS/Organization/CF/VpcCIDR"
   RDSClientSGID:
     Type: AWS::SSM::Parameter::Value<String>
     Default: "/cambian-devCS/Organization/CF/RDSClientSGID"
