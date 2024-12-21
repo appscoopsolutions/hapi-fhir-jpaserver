@@ -8,11 +8,11 @@ AWS_ACCOUNT_ID=$(aws sts get-caller-identity --query Account --output text)
 AWS_REGION="ca-central-1" # Change this to your AWS region
 REPOSITORY_NAME="organization-images"
 IMAGE_NAME="hapi_fhir_jspaserver_cambian"
-IMAGE_TAG="latest"
+IMAGE_TAG="v1"
 ECR_URI="${AWS_ACCOUNT_ID}.dkr.ecr.${AWS_REGION}.amazonaws.com"
 
-# Build the Docker image
-docker build -t ${REPOSITORY_NAME}:${IMAGE_NAME}-${IMAGE_TAG} .
+# Build the Docker image in linux/ARM64 architecture, same has been configured in the template.
+docker build --platform linux/arm64 -t ${REPOSITORY_NAME}:${IMAGE_NAME}-${IMAGE_TAG} .
 
 # Authenticate Docker with ECR
 aws ecr get-login-password --region ${AWS_REGION} | docker login --username AWS --password-stdin ${ECR_URI}
