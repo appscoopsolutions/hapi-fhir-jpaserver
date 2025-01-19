@@ -2,6 +2,15 @@ AWSTemplateFormatVersion: "2010-09-09"
 Transform: AWS::Serverless-2016-10-31
 Description: HAPI FHIR JPA Server ECS Deployment with Private VPC Endpoints
 
+Mappings:
+  VisibilityEnvMap:
+    IndividualVisibilityEnv:
+      Value: "Individual"
+    OrganizationVisibilityEnv:
+      Value: "Organization"
+    NetworkVisibilityEnv:
+      Value: "Network"
+
 Parameters:
   TestPrefix:
     Type: String
@@ -61,6 +70,15 @@ Resources:
       SubnetIds: !Ref PrivateSubnets
       SecurityGroupIds:
         - !Ref HapiFhirVPCEndpointSecurityGroup
+      Tags:
+        - Key: project
+          Value: selfschedular
+        - Key: component
+          Value: app
+        - Key: Name
+          Value: !Sub 
+            - "${TestPrefix}${Env}${VisibilityEnv}ECRDockerVpcEndpoint"
+            - VisibilityEnv: !FindInMap [ VisibilityEnvMap, OrganizationVisibilityEnv, Value ]
 
   ECRAPIVpcEndpoint:
     Type: AWS::EC2::VPCEndpoint
@@ -72,6 +90,15 @@ Resources:
       SubnetIds: !Ref PrivateSubnets
       SecurityGroupIds:
         - !Ref HapiFhirVPCEndpointSecurityGroup
+      Tags:
+        - Key: project
+          Value: selfschedular
+        - Key: component
+          Value: app
+        - Key: Name
+          Value: !Sub 
+            - "${TestPrefix}${Env}${VisibilityEnv}ECRAPIVpcEndpoint"
+            - VisibilityEnv: !FindInMap [ VisibilityEnvMap, OrganizationVisibilityEnv, Value ]
 
   CloudWatchLogsVpcEndpoint:
     Type: AWS::EC2::VPCEndpoint
@@ -83,6 +110,15 @@ Resources:
       SubnetIds: !Ref PrivateSubnets
       SecurityGroupIds:
         - !Ref HapiFhirVPCEndpointSecurityGroup
+      Tags:
+        - Key: project
+          Value: selfschedular
+        - Key: component
+          Value: app
+        - Key: Name
+          Value: !Sub 
+            - "${TestPrefix}${Env}${VisibilityEnv}CloudwatchLogsVpcEndpoint"
+            - VisibilityEnv: !FindInMap [ VisibilityEnvMap, OrganizationVisibilityEnv, Value ]
 
   # Security Groups
   HapiFhirVPCEndpointSecurityGroup:
@@ -95,6 +131,15 @@ Resources:
           FromPort: 443
           ToPort: 443
           CidrIp: !Ref VpcCIDR
+      Tags:
+        - Key: project
+          Value: selfschedular
+        - Key: component
+          Value: app
+        - Key: Name
+          Value: !Sub 
+            - "${TestPrefix}${Env}${VisibilityEnv}HapiFhirVpcEndpointSecurityGroup"
+            - VisibilityEnv: !FindInMap [ VisibilityEnvMap, OrganizationVisibilityEnv, Value ]
 
   HapiFhirECSTaskSecurityGroup:
     Type: AWS::EC2::SecurityGroup
@@ -136,6 +181,15 @@ Resources:
           FromPort: !Sub "{{resolve:secretsmanager:${RDSConnectionSecretArn}:SecretString:port}}"
           ToPort: !Sub "{{resolve:secretsmanager:${RDSConnectionSecretArn}:SecretString:port}}"
           DestinationSecurityGroupId: !Ref RDSClientSGID
+      Tags:
+        - Key: project
+          Value: selfschedular
+        - Key: component
+          Value: app
+        - Key: Name
+          Value: !Sub 
+            - "${TestPrefix}${Env}${VisibilityEnv}HapiFhirECSTaskSecurityGroup"
+            - VisibilityEnv: !FindInMap [ VisibilityEnvMap, OrganizationVisibilityEnv, Value ]
 
   # ECS Resources
   HapiFhirCluster:
@@ -145,6 +199,15 @@ Resources:
       ClusterSettings:
         - Name: containerInsights
           Value: enabled
+      Tags:
+        - Key: project
+          Value: selfschedular
+        - Key: component
+          Value: app
+        - Key: Name
+          Value: !Sub 
+            - "${TestPrefix}${Env}${VisibilityEnv}HapiFhirCluster"
+            - VisibilityEnv: !FindInMap [ VisibilityEnvMap, OrganizationVisibilityEnv, Value ]
 
   HapiFhirTaskDefinition:
     Type: AWS::ECS::TaskDefinition
@@ -193,6 +256,15 @@ Resources:
               Value: !Sub "{{resolve:secretsmanager:${HapiFhirCredentialsSecretArn}:SecretString:username}}"
             - Name: POSTGRES_PASSWORD
               Value: !Sub "{{resolve:secretsmanager:${HapiFhirCredentialsSecretArn}:SecretString:password}}"
+      Tags:
+        - Key: project
+          Value: selfschedular
+        - Key: component
+          Value: app
+        - Key: Name
+          Value: !Sub 
+            - "${TestPrefix}${Env}${VisibilityEnv}HapiFhirTaskDefinition"
+            - VisibilityEnv: !FindInMap [ VisibilityEnvMap, OrganizationVisibilityEnv, Value ]
 
   HapiFhirALB:
     Type: AWS::ElasticLoadBalancingV2::LoadBalancer
@@ -230,6 +302,15 @@ Resources:
       HealthCheckTimeoutSeconds: 5
       HealthyThresholdCount: 2
       UnhealthyThresholdCount: 2
+      Tags:
+        - Key: project
+          Value: selfschedular
+        - Key: component
+          Value: app
+        - Key: Name
+          Value: !Sub 
+            - "${TestPrefix}${Env}${VisibilityEnv}ALBTargetGroup"
+            - VisibilityEnv: !FindInMap [ VisibilityEnvMap, OrganizationVisibilityEnv, Value ]
 
   # Security Group for ALB
   ALBSecurityGroup:
@@ -247,6 +328,15 @@ Resources:
           FromPort: 8080
           ToPort: 8080
           CidrIp: !Ref VpcCIDR
+      Tags:
+        - Key: project
+          Value: selfschedular
+        - Key: component
+          Value: app
+        - Key: Name
+          Value: !Sub 
+            - "${TestPrefix}${Env}${VisibilityEnv}ALBSecurityGroup"
+            - VisibilityEnv: !FindInMap [ VisibilityEnvMap, OrganizationVisibilityEnv, Value ]
 
   HapiFhirService:
     Type: AWS::ECS::Service
@@ -269,6 +359,15 @@ Resources:
         - ContainerName: !Sub "${TestPrefix}${Env}hapi-fhir-container"
           ContainerPort: 8080
           TargetGroupArn: !Ref ALBTargetGroup
+      Tags:
+        - Key: project
+          Value: selfschedular
+        - Key: component
+          Value: app
+        - Key: Name
+          Value: !Sub 
+            - "${TestPrefix}${Env}${VisibilityEnv}HapiFhirService"
+            - VisibilityEnv: !FindInMap [ VisibilityEnvMap, OrganizationVisibilityEnv, Value ]
 
   # IAM Roles and Log Group
   HapiFhirLogGroup:
@@ -276,6 +375,15 @@ Resources:
     Properties:
       LogGroupName: !Sub "/ecs/${TestPrefix}${Env}/hapi-fhir"
       RetentionInDays: 30
+      Tags:
+        - Key: project
+          Value: selfschedular
+        - Key: component
+          Value: app
+        - Key: Name
+          Value: !Sub 
+            - "${TestPrefix}${Env}${VisibilityEnv}HapiFhirLogGroup"
+            - VisibilityEnv: !FindInMap [ VisibilityEnvMap, OrganizationVisibilityEnv, Value ]
 
   ECSTaskExecutionRole:
     Type: AWS::IAM::Role
@@ -326,6 +434,15 @@ Resources:
                   - ecr:BatchGetImage
                 Resource:
                   - !Sub "arn:aws:ecr:${AWS::Region}:*:repository/*"
+      Tags:
+        - Key: project
+          Value: selfschedular
+        - Key: component
+          Value: app
+        - Key: Name
+          Value: !Sub 
+            - "${TestPrefix}${Env}${VisibilityEnv}ECSTaskExecutionRole"
+            - VisibilityEnv: !FindInMap [ VisibilityEnvMap, OrganizationVisibilityEnv, Value ]
 
   ECSTaskRole:
     Type: AWS::IAM::Role
@@ -348,6 +465,15 @@ Resources:
                   - logs:PutLogEvents
                   - logs:DescribeLogStreams
                 Resource: !GetAtt HapiFhirLogGroup.Arn
+      Tags:
+        - Key: project
+          Value: selfschedular
+        - Key: component
+          Value: app
+        - Key: Name
+          Value: !Sub 
+            - "${TestPrefix}${Env}${VisibilityEnv}ECSTaskRole"
+            - VisibilityEnv: !FindInMap [ VisibilityEnvMap, OrganizationVisibilityEnv, Value ]
 
   CDRURLParameter:
     Type: AWS::SSM::Parameter
@@ -356,6 +482,12 @@ Resources:
       Type: String
       Value: !Sub "http://${HapiFhirALB.DNSName}/fhir"
       Description: "Internal URL for HAPI FHIR CDR"
+      Tags:
+        project: selfschedular
+        component: app
+        Name: !Sub
+          - "${TestPrefix}${Env}${VisibilityEnv}CDRURLParameter"
+          - VisibilityEnv: !FindInMap [ VisibilityEnvMap, OrganizationVisibilityEnv, Value ]
 
   HAPIFHIRClientSGIDParameter:
     Type: AWS::SSM::Parameter
@@ -364,6 +496,12 @@ Resources:
       Type: String
       Value: !Ref ALBSecurityGroup
       Description: "Security Group ID for HAPI FHIR client access"
+      Tags:
+        project: selfschedular
+        component: app
+        Name: !Sub 
+          - "${TestPrefix}${Env}${VisibilityEnv}HAPIFHIRClientSGIDParameter"
+          - VisibilityEnv: !FindInMap [ VisibilityEnvMap, OrganizationVisibilityEnv, Value ]
 
 Outputs:
   ECSClusterName:
