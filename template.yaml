@@ -157,6 +157,11 @@ Resources:
           FromPort: 8080
           ToPort: 8080
           SourceSecurityGroupId: !Ref OrganizationLambdaSGID
+        # Allow access from ALB Security Group
+        - IpProtocol: tcp
+          FromPort: 8080
+          ToPort: 8080
+          SourceSecurityGroupId: !Ref ALBSecurityGroup
       SecurityGroupEgress:
         # HTTPS (443) outbound - required for ECR, downloads
         - IpProtocol: tcp
